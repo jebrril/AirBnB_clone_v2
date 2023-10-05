@@ -1,49 +1,69 @@
 #!/usr/bin/python3
-# Fabfile to distribute an archive to a web server.
-import os.path
-from fabric.api import env
-from fabric.api import put
-from fabric.api import run
 
-env.hosts = ["104.196.168.90", "35.196.46.172"]
+""" Test deploy web static """
+from datetime import datetime
+from fabric.api import run, env, put, local, task
+import os
 
 
-def do_deploy(archive_path):
-    """Distributes an archive to a web server.
+env.hosts = ["54.90.63.243", "54.90.4.180"]
 
-    Args:
-        archive_path (str): The path of the archive to distribute.
-    Returns:
-        If the file doesn't exist at archive_path or an error occurs - False.
-        Otherwise - True.
+
+@task
+def do_pack():
     """
-    if os.path.isfile(archive_path) is False:
-        return False
-    file = archive_path.split("/")[-1]
-    name = file.split(".")[0]
+    Generates a .tgz archive from the contents of the web_static folder.
 
-    if put(archive_path, "/tmp/{}".format(file)).failed is True:
+    Returns:
+        str: The path to the generated archive
+        file, or None if an error occurs.
+    """
+    date = datetime.now().strftime("%Y%m%d%H%M%S")
+    path = "versions/web_static_{}.tgz".format(date)
+    cmd = "tar -cvzf {} web_static".format(path)
+    try:
+        if not os.path.exists("versions"):
+            local("mkdir versions")
+        local(cmd)
+        return path
+    except Exception:
+        return None
+
+
+@task
+def do_deploy(archive_path):
+    """
+    Deploy package to remote server.
+
+    Arguments:
+        archive_path: Path to archive to deploy.
+    """
+    if not archive_path or not os.path.exists(archive_path):
         return False
-    if run("rm -rf /data/web_static/releases/{}/".
-           format(name)).failed is True:
+
+    put(archive_path, '/tmp')
+
+    ar_name = archive_path[archive_path.find("/") + 1: -4]
+    try:
+        if not os.path.exists(archive_path):
+            return False
+
+        fn_with_ext = os.path.basename(archive_path)
+        fn_no_ext, ext = os.path.splitext(fn_with_ext)
+        dpath = "/data/web_static/releases/"
+
+        put(archive_path, "/tmp/")
+        run("rm -rf {}{}/".format(dpath, fn_no_ext))
+        run("mkdir -p {}{}/".format(dpath, fn_no_ext))
+        run("tar -xzf /tmp/{} -C {}{}/".format(fn_with_ext, dpath, fn_no_ext))
+        run("rm /tmp/{}".format(fn_with_ext))
+        run("mv {0}{1}/web_static/* {0}{1}/".format(dpath, fn_no_ext))
+        run("rm -rf {}{}/web_static".format(dpath, fn_no_ext))
+        run("rm -rf /data/web_static/current")
+        run("ln -s {}{}/ /data/web_static/current".format(dpath, fn_no_ext))
+
+        print("New version deployed!")
+        return True
+
+    except Exception:
         return False
-    if run("mkdir -p /data/web_static/releases/{}/".
-           format(name)).failed is True:
-        return False
-    if run("tar -xzf /tmp/{} -C /data/web_static/releases/{}/".
-           format(file, name)).failed is True:
-        return False
-    if run("rm /tmp/{}".format(file)).failed is True:
-        return False
-    if run("mv /data/web_static/releases/{}/web_static/* "
-           "/data/web_static/releases/{}/".format(name, name)).failed is True:
-        return False
-    if run("rm -rf /data/web_static/releases/{}/web_static".
-           format(name)).failed is True:
-        return False
-    if run("rm -rf /data/web_static/current").failed is True:
-        return False
-    if run("ln -s /data/web_static/releases/{}/ /data/web_static/current".
-           format(name)).failed is True:
-        return False
-    return True
