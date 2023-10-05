@@ -1,0 +1,6 @@
+.vscode/
+models/__pycache__
+models/engine/__pycache__
+myenv/
+versions
+__pycache__/
